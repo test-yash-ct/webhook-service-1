@@ -2,8 +2,10 @@ import { Router, Request, Response } from "express";
 import { fetchCallback, isSSRFVulnerable } from "../lib/httpClient";
 import { pool } from "../db";
 import { URL } from "url";
+import { dispatchAuth } from "../middleware/dispatchAuth";
 
 const router = Router();
+router.use(dispatchAuth);
 
 async function validateCallbackUrl(url: string): Promise<{ valid: boolean; error?: string }> {
   if (url.length > 2048) {

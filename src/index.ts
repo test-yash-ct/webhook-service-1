@@ -4,6 +4,7 @@ import ingestRoutes from "./routes/ingest";
 import dispatchRoutes from "./routes/dispatch";
 import { initSchema, pool } from "./db";
 import { config } from "./config";
+import { rateLimit } from "./middleware/rateLimit";
 
 async function main(): Promise<void> {
   await initSchema();
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
   });
 
   app.use(express.json({ limit: "128kb" }));
+  app.use(rateLimit(parseInt(process.env.RATE_LIMIT_PER_MINUTE || "500", 10)));
 
   app.use(
     cors({

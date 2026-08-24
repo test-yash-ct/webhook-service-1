@@ -1,7 +1,12 @@
 import { Pool } from "pg";
 import { config } from "./config";
 
-export const pool = new Pool({ connectionString: config.databaseUrl });
+export const pool = new Pool({
+  connectionString: config.databaseUrl,
+  max: parseInt(process.env.DB_POOL_MAX || "25", 10),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+});
 
 export async function initSchema(): Promise<void> {
   await pool.query(`
