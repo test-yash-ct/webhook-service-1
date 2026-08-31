@@ -26,3 +26,14 @@ Service listens on `http://localhost:3003` by default.
 ```bash
 npm test
 ```
+
+## Observability
+
+`X-Request-Id` middleware assigns or echoes a correlation id on every request. The same value is stored as `correlation_id` in delivery attempts and forwarded on outbound callback HTTP calls. Structured logs include `requestId` and `service`.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Liveness with database ping |
+| `GET /ready` | Readiness probe |
+
+Configure `SERVICE_NAME`, `LOG_LEVEL`, and `REQUEST_ID_HEADER` via environment variables.

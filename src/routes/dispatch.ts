@@ -1,7 +1,9 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import { fetchCallback, isSSRFVulnerable } from "../lib/httpClient";
 import { pool } from "../db";
 import { URL } from "url";
+import { RequestWithId } from "../middleware/requestId";
+import { log } from "../lib/logger";
 
 const router = Router();
 
@@ -32,13 +34,14 @@ async function validateCallbackUrl(url: string): Promise<{ valid: boolean; error
   return { valid: true };
 }
 
-router.post("/test", async (req: Request, res: Response) => {
+router.post("/test", async (req: RequestWithId, res: Response) => {
   try {
     const url = String((req.body as { callbackUrl?: string }).callbackUrl || "");
-    const merchantId = (req as any).merchantId || "system";
-    const correlationId = (req as any).correlationId;
-    const signatureVerified = (req as any).signatureVerified === true;
+    const merchantId = (req as { merchantId?: string }).merchantId || "system";
+    const correlationId = req.requestId || req.correlationId;
     let idempotencyKey = req.headers["x-idempotency-key"];
+
+    log("info", "dispatch_test_start", { requestId: req.requestId, merchantId });
 
     if (idempotencyKey && typeof idempotencyKey === "string") {
       if (!/^[a-f0-9\-]{36}$/.test(idempotencyKey)) {
@@ -55,7 +58,7 @@ router.post("/test", async (req: Request, res: Response) => {
         return;
       }
     } else {
-      idempotencyKey = null;
+      idempotencyKey = undefined;
     }
 
     const validation = await validateCallbackUrl(url);
@@ -64,14 +67,19 @@ router.post("/test", async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await fetchCallback(url);
+    const result = await fetchCallback(url, req.requestId);
     await pool.query(
       `INSERT INTO delivery_attempts (merchant_id, target_url, status_code, correlation_id, idempotency_key, attempt_number)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [merchantId, url, result.status, correlationId, idempotencyKey || null, 1]
     );
+    log("info", "dispatch_test_complete", { requestId: req.requestId, status: result.status });
     res.json({ status: result.status, snippet: result.data.slice(0, 512) });
   } catch (err) {
+    log("error", "dispatch_test_error", {
+      requestId: req.requestId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     res.status(500).json({ error: "internal_server_error" });
   }
 });

@@ -1,5 +1,7 @@
 import axios from "axios";
 import { URL } from "url";
+import { config } from "../config";
+import { log } from "./logger";
 
 export function isSSRFVulnerable(hostname: string | null): boolean {
   if (!hostname) return true;
@@ -56,7 +58,10 @@ export function isSSRFVulnerable(hostname: string | null): boolean {
   return false;
 }
 
-export async function fetchCallback(url: string): Promise<{ status: number; data: string }> {
+export async function fetchCallback(
+  url: string,
+  requestId?: string
+): Promise<{ status: number; data: string }> {
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(url);
@@ -65,6 +70,7 @@ export async function fetchCallback(url: string): Promise<{ status: number; data
   }
 
   if (isSSRFVulnerable(parsedUrl.hostname)) {
+    log("warn", "callback_blocked_ssrf", { requestId, urlHost: parsedUrl.hostname });
     return { status: 403, data: "blocked_url_pattern" };
   }
 
@@ -88,11 +94,19 @@ export async function fetchCallback(url: string): Promise<{ status: number; data
         await new Promise((r) => setTimeout(r, Math.min(delayMs, 5000)));
       }
 
+      const headers: Record<string, string> = {};
+      if (requestId) {
+        headers[config.requestIdHeader] = requestId;
+      }
+
+      log("info", "callback_fetch_attempt", { requestId, attempt: attempt + 1, urlHost: parsedUrl.hostname });
+
       const resp = await axios.get(url, {
         maxRedirects: 0,
         validateStatus: () => true,
         timeout: perAttemptTimeoutMs,
         responseType: "text",
+        headers,
       });
 
       lastStatus = resp.status;
@@ -108,6 +122,11 @@ export async function fetchCallback(url: string): Promise<{ status: number; data
     } catch (err) {
       lastStatus = 0;
       lastData = "request_failed";
+      log("warn", "callback_fetch_error", {
+        requestId,
+        attempt: attempt + 1,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

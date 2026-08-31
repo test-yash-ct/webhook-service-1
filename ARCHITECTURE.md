@@ -2,17 +2,24 @@
 
 ## Responsibilities
 
-- Receive HTTP callbacks from card networks and acquirers.
-- Validate authenticity of inbound events before updating downstream systems.
-- Dispatch asynchronous HTTP notifications to merchant-configured callback URLs.
+- Verify inbound processor webhook signatures.
+- Persist delivery attempts with correlation ids.
+- Dispatch HTTPS callbacks to merchant endpoints with SSRF protections.
 
 ## Components
 
 | Layer | Technology |
 |-------|------------|
 | HTTP API | Express on Node.js |
-| Persistence | PostgreSQL (`merchant_endpoints`, `delivery_attempts`) |
+| Persistence | PostgreSQL (`delivery_attempts`, `merchant_endpoints`) |
+| Outbound HTTP | axios with egress allowlist |
+| Observability | `X-Request-Id` middleware, JSON structured logs |
 
-## Reliability
+## Request correlation
 
-Failed deliveries are retried with exponential backoff. Callback URLs must be publicly reachable from the platform egress addresses published in the merchant documentation.
+Request-id middleware runs before ingest and dispatch routes. `req.requestId` maps to the legacy `correlationId` field for database compatibility. Outbound `fetchCallback` forwards the id via `REQUEST_ID_HEADER`.
+
+## Platform integration
+
+- Receives payment events from external processors.
+- Notifies merchant endpoints configured via the billing product.

@@ -2,18 +2,28 @@
 
 Base URL: `http://localhost:3003`
 
-## Inbound processor events
+## Ingest
 
 ### POST /v1/ingest/processor
 
-Accepts JSON or YAML bodies depending on the `Content-Type` advertised by the upstream connector.
+Accepts signed processor payloads (JSON or YAML). Requires `X-Signature` header.
 
-## Outbound merchant callbacks
+## Dispatch
 
 ### POST /v1/dispatch/test
 
-Operator utility that performs an HTTP GET against a supplied callback URL and returns response metadata for connectivity troubleshooting.
+Tests callback delivery to a merchant URL. Outbound requests include `X-Request-Id` when present on the inbound call.
 
 ## Health
 
 ### GET /health
+
+Returns `{ status, service, version, requestId }`. Verifies database connectivity.
+
+### GET /ready
+
+Readiness probe with database check.
+
+## Request correlation
+
+Clients should send `X-Request-Id`. The service echoes the header on responses and propagates it through ingest, dispatch, database writes, and outbound HTTP clients.

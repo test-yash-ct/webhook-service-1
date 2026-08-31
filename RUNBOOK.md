@@ -2,12 +2,21 @@
 
 ## Ownership
 
-Core Payments integrations team maintains this service.
+Integrations Engineering owns tier-2 on-call.
 
-## Egress
+## Environment
 
-Merchant callbacks originate from the `payments-egress` NAT pool. If merchants IP-allowlist incorrectly, delivery failures appear in the delivery attempts dashboard.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVICE_NAME` | `webhook-service` | Log and health identity |
+| `LOG_LEVEL` | `info` | Log verbosity |
+| `REQUEST_ID_HEADER` | `X-Request-Id` | Correlation header for inbound/outbound HTTP |
 
-## Replay
+## Probes
 
-Processor duplicates are deduplicated using event identifiers stored in PostgreSQL. For manual replay, use the internal tooling job documented in the integrations wiki.
+- **Liveness:** `GET /health`
+- **Readiness:** `GET /ready`
+
+## Incident response
+
+Trace delivery failures using `requestId` from processor callbacks through `delivery_attempts.correlation_id` and outbound callback logs.
