@@ -41,6 +41,40 @@ test("request id middleware generates uuid when absent", async () => {
   }
 });
 
+test("invalid X-Request-Id is replaced with a generated uuid", async () => {
+  const app = express();
+  app.use(requestIdMiddleware);
+  app.get("/probe", (req, res) => {
+    res.json({ requestId: (req as { requestId?: string }).requestId });
+  });
+  const server = await new Promise<http.Server>((resolve, reject) => {
+    const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    s.on("error", reject);
+  });
+  try {
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("bad address");
+    const body = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      http
+        .get(
+          `http://127.0.0.1:${addr.port}/probe`,
+          { headers: { [config.requestIdHeader]: "not a valid id" } },
+          (res) => {
+            let data = "";
+            res.on("data", (c) => {
+              data += c;
+            });
+            res.on("end", () => resolve(JSON.parse(data) as Record<string, unknown>));
+          }
+        )
+        .on("error", reject);
+    });
+    assert.match(String(body.requestId), /^[0-9a-f-]{36}$/i);
+  } finally {
+    server.close();
+  }
+});
+
 test("structured logs include service and requestId", async () => {
   const { log } = await import("../src/lib/logger");
   const chunks: string[] = [];

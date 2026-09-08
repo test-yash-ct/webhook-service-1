@@ -1,6 +1,6 @@
-import { Router, Response, raw } from "express";
+import { Router, Response, raw, Request } from "express";
 import yaml from "js-yaml";
-import { pool } from "../db";
+import { insertAuditEvent, pool } from "../db";
 import { inboundAuth } from "../middleware/auth";
 import { RequestWithId } from "../middleware/requestId";
 import { log } from "../lib/logger";
@@ -13,6 +13,10 @@ router.post(
   raw({ type: ["application/json", "application/x-yaml", "text/yaml", "*/*"], limit: "1mb" }),
   async (req: RequestWithId, res: Response) => {
     try {
+      if (!(req as Request & { signatureVerified?: boolean }).signatureVerified) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
       const correlationId = req.requestId || req.correlationId;
       const merchantId = (req as { merchantId?: string }).merchantId || "system";
       const ct = String(req.headers["content-type"] || "");
@@ -80,6 +84,11 @@ router.post(
         ]
       );
       log("info", "ingest_processor_accepted", { requestId: req.requestId, eventType });
+      await insertAuditEvent({
+        action: "ingest_processor_accepted",
+        requestId: req.requestId,
+        actor: merchantId,
+      });
       res.status(202).json({ accepted: true, eventType });
     } catch (err) {
       log("error", "ingest_processor_error", {

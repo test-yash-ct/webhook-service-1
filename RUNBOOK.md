@@ -10,7 +10,7 @@ Integrations Engineering owns tier-2 on-call.
 |----------|---------|-------------|
 | `SERVICE_NAME` | `webhook-service` | Log and health identity |
 | `LOG_LEVEL` | `info` | Log verbosity |
-| `REQUEST_ID_HEADER` | `X-Request-Id` | Correlation header for inbound/outbound HTTP |
+| `REQUEST_ID_HEADER` | `X-Request-Id` | Correlation header for inbound/outbound HTTP (max 128 token chars; invalid values become a UUID) |
 
 ## Probes
 
