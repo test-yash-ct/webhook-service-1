@@ -1,13 +1,13 @@
 {
   "name": "webhook-service",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "test": "npm run build && node --test dist/tests/health.test.js"
+    "test": "npm run build && node --test dist/tests/health.test.js dist/tests/requestId.test.js"
   },
   "dependencies": {
     "axios": "^1.7.7",

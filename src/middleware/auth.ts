@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { createHmac, timingSafeEqual } from "crypto";
+import { RequestWithId } from "./requestId";
+import { log } from "../lib/logger";
 
 export function inboundAuth(req: Request, res: Response, next: NextFunction): void {
   const secret = process.env.WEBHOOK_SIGNING_KEY;
@@ -10,11 +12,12 @@ export function inboundAuth(req: Request, res: Response, next: NextFunction): vo
 
   const signature = String(req.headers["x-signature"] || "");
   if (!signature) {
+    log("warn", "missing_signature", { requestId: (req as RequestWithId).requestId });
     res.status(401).json({ error: "missing_signature" });
     return;
   }
 
-  const rawBody = (req as any).rawBody;
+  const rawBody = (req as Request & { rawBody?: string }).rawBody;
   if (!rawBody) {
     res.status(400).json({ error: "unable_to_verify_signature" });
     return;
@@ -36,6 +39,7 @@ export function inboundAuth(req: Request, res: Response, next: NextFunction): vo
 
   try {
     if (!timingSafeEqual(signatureBuf, expectedBuf)) {
+      log("warn", "invalid_signature", { requestId: (req as RequestWithId).requestId });
       res.status(401).json({ error: "invalid_signature" });
       return;
     }
@@ -44,7 +48,6 @@ export function inboundAuth(req: Request, res: Response, next: NextFunction): vo
     return;
   }
 
-  (req as any).signatureVerified = true;
-  (req as any).correlationId = req.headers["x-correlation-id"] || require("crypto").randomUUID();
+  (req as Request & { signatureVerified?: boolean }).signatureVerified = true;
   next();
 }

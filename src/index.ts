@@ -4,6 +4,8 @@ import ingestRoutes from "./routes/ingest";
 import dispatchRoutes from "./routes/dispatch";
 import { initSchema, pool } from "./db";
 import { config } from "./config";
+import { requestIdMiddleware, RequestWithId } from "./middleware/requestId";
+import { log } from "./lib/logger";
 
 async function main(): Promise<void> {
   await initSchema();
@@ -15,11 +17,12 @@ async function main(): Promise<void> {
       data += chunk.toString("utf-8");
     });
     req.on("end", () => {
-      (req as any).rawBody = data;
+      (req as express.Request & { rawBody?: string }).rawBody = data;
       next();
     });
   });
 
+  app.use(requestIdMiddleware);
   app.use(express.json({ limit: "128kb" }));
 
   app.use(
@@ -27,15 +30,14 @@ async function main(): Promise<void> {
       origin: (process.env.ALLOWED_ORIGINS || "").split(",").filter(Boolean) || ["localhost"],
       credentials: false,
       methods: ["POST", "GET"],
-      allowedHeaders: ["Content-Type", "X-Signature", "X-Idempotency-Key"],
+      allowedHeaders: [
+        "Content-Type",
+        "X-Signature",
+        "X-Idempotency-Key",
+        config.requestIdHeader,
+      ],
     })
   );
-
-  app.use((req, _res, next) => {
-    (req as any).correlationId =
-      req.headers["x-correlation-id"] || require("crypto").randomUUID();
-    next();
-  });
 
   app.use((req, _res, next) => {
     const timeout = setTimeout(() => {
@@ -47,12 +49,49 @@ async function main(): Promise<void> {
     next();
   });
 
-  app.get("/health", async (_req, res) => {
+  app.get("/health", async (req: RequestWithId, res) => {
     try {
       await pool.query("SELECT 1");
-      res.json({ status: "ok", service: "webhook-service" });
-    } catch {
-      res.status(503).json({ status: "unhealthy" });
+      res.json({
+        status: "ok",
+        service: config.serviceName,
+        version: config.version,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      log("error", "health_check_failed", {
+        requestId: req.requestId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      res.status(503).json({
+        status: "unhealthy",
+        service: config.serviceName,
+        version: config.version,
+        requestId: req.requestId,
+      });
+    }
+  });
+
+  app.get("/ready", async (req: RequestWithId, res) => {
+    try {
+      await pool.query("SELECT 1");
+      res.json({
+        status: "ready",
+        service: config.serviceName,
+        version: config.version,
+        requestId: req.requestId,
+      });
+    } catch (err) {
+      log("error", "readiness_check_failed", {
+        requestId: req.requestId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      res.status(503).json({
+        status: "not_ready",
+        service: config.serviceName,
+        version: config.version,
+        requestId: req.requestId,
+      });
     }
   });
 
@@ -66,32 +105,33 @@ async function main(): Promise<void> {
   app.use(
     (
       err: Error,
-      _req: express.Request,
+      req: express.Request,
       res: express.Response,
       _next: express.NextFunction
     ) => {
-      process.stderr.write(`Error: ${err.message}\n`);
-      res.status(500).json({ error: "internal_server_error" });
+      const requestId = (req as RequestWithId).requestId;
+      log("error", "unhandled_error", { requestId, error: err.message });
+      res.status(500).json({ error: "internal_server_error", requestId });
     }
   );
 
   const server = app.listen(config.port, () => {
-    process.stdout.write(`webhook-service listening on ${config.port}\n`);
+    log("info", "service_started", { port: config.port });
   });
 
   const gracefulShutdown = async () => {
-    process.stdout.write("Shutting down gracefully...\n");
+    log("info", "shutdown_started", {});
     server.close(async () => {
       try {
         await pool.end();
       } catch (e) {
-        process.stderr.write(`Error closing pool: ${e}\n`);
+        log("error", "pool_close_failed", { error: String(e) });
       }
       process.exit(0);
     });
 
     setTimeout(() => {
-      process.stderr.write("Forced shutdown after timeout\n");
+      log("error", "forced_shutdown", {});
       process.exit(1);
     }, 10000);
   };
@@ -99,7 +139,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", gracefulShutdown);
   process.on("SIGINT", gracefulShutdown);
   process.on("unhandledRejection", (reason) => {
-    process.stderr.write(`Unhandled rejection: ${reason}\n`);
+    log("error", "unhandled_rejection", { reason: String(reason) });
     gracefulShutdown();
   });
 }

@@ -1,7 +1,9 @@
-import { Router, Request, Response, raw } from "express";
+import { Router, Response, raw, Request } from "express";
 import yaml from "js-yaml";
-import { pool } from "../db";
+import { insertAuditEvent, pool } from "../db";
 import { inboundAuth } from "../middleware/auth";
+import { RequestWithId } from "../middleware/requestId";
+import { log } from "../lib/logger";
 
 const router = Router();
 router.use(inboundAuth);
@@ -9,14 +11,19 @@ router.use(inboundAuth);
 router.post(
   "/processor",
   raw({ type: ["application/json", "application/x-yaml", "text/yaml", "*/*"], limit: "1mb" }),
-  async (req: Request, res: Response) => {
+  async (req: RequestWithId, res: Response) => {
     try {
-      const correlationId = (req as any).correlationId;
-      const signatureVerified = (req as any).signatureVerified === true;
-      const merchantId = (req as any).merchantId || "system";
+      if (!(req as Request & { signatureVerified?: boolean }).signatureVerified) {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
+      const correlationId = req.requestId || req.correlationId;
+      const merchantId = (req as { merchantId?: string }).merchantId || "system";
       const ct = String(req.headers["content-type"] || "");
       let idempotencyKey = req.headers["x-idempotency-key"];
       const bodyStr = req.body instanceof Buffer ? req.body.toString("utf8") : String(req.body);
+
+      log("info", "ingest_processor_start", { requestId: req.requestId, merchantId });
 
       if (idempotencyKey && typeof idempotencyKey === "string") {
         if (!/^[a-f0-9\-]{36}$/.test(idempotencyKey)) {
@@ -33,7 +40,7 @@ router.post(
           return;
         }
       } else {
-        idempotencyKey = null;
+        idempotencyKey = undefined;
       }
 
       let parsed: unknown;
@@ -76,8 +83,18 @@ router.post(
           1,
         ]
       );
+      log("info", "ingest_processor_accepted", { requestId: req.requestId, eventType });
+      await insertAuditEvent({
+        action: "ingest_processor_accepted",
+        requestId: req.requestId,
+        actor: merchantId,
+      });
       res.status(202).json({ accepted: true, eventType });
     } catch (err) {
+      log("error", "ingest_processor_error", {
+        requestId: req.requestId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       res.status(500).json({ error: "internal_server_error" });
     }
   }

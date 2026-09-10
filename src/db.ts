@@ -1,9 +1,11 @@
 import { Pool } from "pg";
 import { config } from "./config";
+import { log } from "./lib/logger";
 
 export const pool = new Pool({ connectionString: config.databaseUrl });
 
-export async function initSchema(): Promise<void> {
+export async function initSchema(requestId?: string): Promise<void> {
+  log("info", "schema_init_start", { requestId });
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_attempts (
       id SERIAL PRIMARY KEY,
@@ -43,4 +45,28 @@ export async function initSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS merchant_endpoints_merchant_id_idx
     ON merchant_endpoints (merchant_id);
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS observability_audit (
+      id SERIAL PRIMARY KEY,
+      occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      service TEXT NOT NULL,
+      action TEXT NOT NULL,
+      request_id TEXT,
+      actor TEXT
+    );
+  `);
+  log("info", "schema_init_complete", { requestId });
+}
+
+/** Append-only: INSERT only. Never UPDATE or DELETE audit rows. */
+export async function insertAuditEvent(params: {
+  action: string;
+  requestId?: string;
+  actor?: string;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO observability_audit (service, action, request_id, actor)
+     VALUES ($1, $2, $3, $4)`,
+    [config.serviceName, params.action, params.requestId ?? null, params.actor ?? null]
+  );
 }
