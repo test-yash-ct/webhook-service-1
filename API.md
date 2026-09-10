@@ -8,6 +8,8 @@ Base URL: `http://localhost:3003`
 
 Accepts signed processor payloads (JSON or YAML). Requires `X-Signature` header.
 
+Bodies may use `{ "type": "payment.captured" }` or the v1 platform envelope (`eventType`, `sourceService`, `occurredAt`, `requestId`, `payload`). Response `202` includes `{ accepted, eventType, event }`.
+
 ## Dispatch
 
 ### POST /v1/dispatch/test
